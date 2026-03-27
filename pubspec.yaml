@@ -91,6 +91,9 @@ flutter_icons:
   android: true
   ios: true
   image_path: assets/icons/vision_id.png
+  adaptive_icon_foreground: assets/icons/vision_id.png
+  adaptive_icon_background: '#0D1B2A'
+  remove_alpha_ios: true
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

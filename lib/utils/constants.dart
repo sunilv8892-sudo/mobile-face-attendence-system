@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 /// Application constants and theming
 class AppConstants {
   // App metadata
-  static const String appName = 'Face Recognition Attendance';
+  static const String appName = 'FAC';
   static const String appVersion = '18.4.0';
   static const String subtitle =
       'Offline Mobile Face Recognition Attendance System Using Face Embedding and Similarity Matching';

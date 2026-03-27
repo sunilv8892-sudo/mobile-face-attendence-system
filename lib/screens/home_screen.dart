@@ -95,8 +95,8 @@ class _HomeScreenState extends State<HomeScreen> {
             shaderCallback: (bounds) => const LinearGradient(
               colors: [Color(0xFF00D4FF), Color(0xFF6C63FF)],
             ).createShader(bounds),
-            child: const Text(
-              'FaceAttend',
+            child: Text(
+              AppConstants.appName,
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
@@ -876,10 +876,12 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('About Face Attendance'),
+        title: const Text('About FAC'),
         content: const Text(
           'AI-powered face recognition system for seamless attendance tracking. '
-          'Works completely offline with high accuracy and real-time detection.',
+          'Works completely offline with high accuracy and real-time detection.\n\n'
+          'Supervised by: Shivaprasad D L\n'
+          'Developed by: V Sunil',
         ),
         actions: [
           TextButton(

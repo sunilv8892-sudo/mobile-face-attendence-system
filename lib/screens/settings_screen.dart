@@ -757,6 +757,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             const SizedBox(height: 8),
 
+            // ── Project Credits ──
+            _sectionHeader('Project Credits', Icons.badge_outlined),
+            Card(
+              margin: const EdgeInsets.symmetric(
+                horizontal: AppConstants.paddingMedium,
+                vertical: 4,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(AppConstants.paddingMedium),
+                child: Column(
+                  children: [
+                    _infoRow('Supervised by', 'Shivaprasad D L'),
+                    const Divider(height: 1, color: AppConstants.dividerColor),
+                    _infoRow('Developed by', 'V Sunil'),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
             // ── About ──
             _sectionHeader('About', Icons.info_outline),
             Card(
@@ -791,7 +812,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             Center(
               child: Text(
-                '© 2026 Face Recognition Attendance System',
+                '© 2026 FAC',
                 style: const TextStyle(
                   fontSize: 11,
                   color: AppConstants.textTertiary,
