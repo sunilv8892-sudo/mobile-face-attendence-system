@@ -69,6 +69,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool _isFrontLightOn = false;
   double? _previousAppBrightness;
   bool _isBrightnessBoostActive = false;
+  bool _isImageStreamActive = false;
+  DateTime? _lastStreamScanTime;
+  static const Duration _streamScanInterval = Duration(milliseconds: 400);
 
   List<Student> _enrolledStudents = [];
   final Map<int, List<List<double>>> _studentEmbeddings = {};
@@ -88,7 +91,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     static const int _requiredConsecutiveDetections =
       2; // Require 2 consecutive matches
   int? _lastSingleFaceMatchId; // Prevents alternating identity false positives
-  DateTime? _scanWarmupUntil;
 
   // Face overlay
   final List<DetectedFace> _overlayFaces = [];
@@ -114,6 +116,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     _isScanning = false;
     _isProcessing = false;
     _disableBrightnessBoost();
+    unawaited(_stopCameraStream());
     _controller?.dispose();
     // NOTE: _faceDetector and _faceEmbedder are app-scoped singletons;
     // do NOT dispose them here — they are reused across screen instances.
@@ -177,6 +180,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         _attendanceDate!.day,
       );
       await _initCamera();
+      if (mounted && _controller != null && _controller!.value.isInitialized) {
+        await _startContinuousScanning();
+      }
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Init error: $e');
@@ -211,11 +217,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _initCameraFor(CameraDescription camera) async {
     try {
+      await _stopCameraStream();
       await _controller?.dispose();
       _currentCamera = camera;
       _controller = CameraController(
         camera,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -224,6 +231,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       _isBackFlashOn = false;
       _isFrontLightOn = false;
       await _disableBrightnessBoost();
+      if (_isScanning) {
+        await _startCameraStream();
+      }
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Init camera error: $e');
@@ -316,11 +326,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Future<void> _scanFace() async {
     if (_controller == null || !_controller!.value.isInitialized) return;
     if (_isProcessing) return;
-
-    final warmupUntil = _scanWarmupUntil;
-    if (warmupUntil != null && DateTime.now().isBefore(warmupUntil)) {
-      return;
-    }
 
     _isProcessing = true;
 
@@ -510,35 +515,294 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _startContinuousScanning() async {
-    if (_isScanning) return;
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
+    if (_isScanning && _isImageStreamActive) return;
+
     _isScanning = true;
     _consecutiveDetectionsMap.clear();
     _lastSingleFaceMatchId = null;
-    _scanWarmupUntil = DateTime.now().add(const Duration(seconds: 2));
+    _lastStreamScanTime = null;
     if (mounted) setState(() {});
 
-    try {
-      while (_isScanning) {
-        if (!_isProcessing) {
-          await _scanFace();
-        }
-        await Future.delayed(const Duration(milliseconds: 300));
-      }
-    } finally {
-      _isScanning = false;
-      if (mounted) setState(() {});
-    }
+    await _startCameraStream();
   }
 
   void _stopScanning() {
     _isScanning = false;
     _consecutiveDetectionsMap.clear();
     _lastSingleFaceMatchId = null;
-    _scanWarmupUntil = null;
+    _lastStreamScanTime = null;
+    unawaited(_stopCameraStream());
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _startCameraStream() async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    if (_isImageStreamActive) return;
+
+    try {
+      await _controller!.startImageStream((image) {
+        if (!_isScanning || _isProcessing) return;
+
+        final now = DateTime.now();
+        final lastScan = _lastStreamScanTime;
+        if (lastScan != null && now.difference(lastScan) < _streamScanInterval) {
+          return;
+        }
+
+        _lastStreamScanTime = now;
+        unawaited(_processLiveFrame(image));
+      });
+      _isImageStreamActive = true;
+    } catch (e) {
+      debugPrint('Image stream start error: $e');
+      _isImageStreamActive = false;
+    }
+  }
+
+  Future<void> _stopCameraStream() async {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      _isImageStreamActive = false;
+      return;
+    }
+
+    if (!_isImageStreamActive) return;
+
+    try {
+      await _controller!.stopImageStream();
+    } catch (e) {
+      debugPrint('Image stream stop error: $e');
+    } finally {
+      _isImageStreamActive = false;
+    }
+  }
+
+  Future<void> _processLiveFrame(CameraImage image) async {
+    if (!_isScanning || _isProcessing) return;
+
+    _isProcessing = true;
+
+    try {
+      final rawImage = _convertCameraImageToImage(image);
+      final rotation = _currentCamera.sensorOrientation % 360;
+      final correctedImage = rotation == 0
+          ? rawImage
+          : img.copyRotate(rawImage, angle: rotation.toDouble());
+
+      final detectionBytes = Uint8List.fromList(
+        img.encodeJpg(correctedImage, quality: 90),
+      );
+      final detections = await _detectFaceWithMlKitBytes(detectionBytes);
+      if (detections.isEmpty) {
+        debugPrint('❌ No face detected');
+        return;
+      }
+
+      await _processScannedFrame(correctedImage, detections);
+    } catch (e) {
+      debugPrint('Live scan error: $e');
+      if ('$e'.contains('Disposed CameraController')) {
+        _isScanning = false;
+      }
+    } finally {
+      _isProcessing = false;
+    }
+  }
+
+  Future<void> _processScannedFrame(
+    img.Image rawImage,
+    List<DetectedFace> detections,
+  ) async {
+    debugPrint('📸 Scanning face: ${rawImage.width}x${rawImage.height}');
+
+    _imageSize = Size(
+      rawImage.width.toDouble(),
+      rawImage.height.toDouble(),
+    );
+
+    // Filter valid faces (must be at least 60x60)
+    final validFaces = detections
+        .where((face) => face.width >= 60 && face.height >= 60)
+        .toList();
+    final requiredDetections = validFaces.length > 1
+      ? 1
+      : _requiredConsecutiveDetections;
+
+    if (validFaces.isEmpty) {
+      debugPrint('⚠️ No valid faces found');
+      return;
+    }
+
+    // Clear previous overlays
+    _overlayFaces.clear();
+    _overlayNames.clear();
+    _overlayColors.clear();
+    _overlayEmotions.clear();
+    final seenInCurrentScan = <int>{};
+    final countedInCurrentScan = <int>{};
+
+    // Process each valid face
+    for (final face in validFaces) {
+      // Crop and generate embedding
+      final croppedFace = _cropFace(rawImage, face);
+      final embedding = await _generateEmbedding(croppedFace);
+
+      // Detect emotion from the same shared cue model used by the Emotion AI screen
+      String currentEmotion = '';
+      if (_emotionModelReady) {
+        try {
+          final emotionResult = _emotionModel.predict(face);
+          currentEmotion = emotionResult.label;
+        } catch (e) {
+          debugPrint('⚠️ Emotion detection failed: $e');
+        }
+      }
+
+      if (embedding.isEmpty) {
+        debugPrint('❌ Failed to generate embedding for face');
+        // No embedding, show unknown
+        _overlayFaces.add(face);
+        _overlayNames.add('Unknown');
+        _overlayColors.add(Colors.red);
+        _overlayEmotions.add(currentEmotion);
+        continue;
+      }
+
+      // Find matching student with similarity check
+      final match = _findMatchingStudent(embedding);
+      if (match != null) {
+        final studentId = match.id!;
+        seenInCurrentScan.add(studentId);
+
+        // For single-face: reset counters if identity changes between frames
+        if (validFaces.length == 1) {
+          if (_lastSingleFaceMatchId != null && _lastSingleFaceMatchId != studentId) {
+            _consecutiveDetectionsMap.clear();
+            debugPrint('🔄 Identity changed — consecutive counters reset');
+          }
+          _lastSingleFaceMatchId = studentId;
+        }
+
+        // Track consecutive detections per student (max 1 increment per scan)
+        if (countedInCurrentScan.add(studentId)) {
+          _consecutiveDetectionsMap[studentId] =
+              (_consecutiveDetectionsMap[studentId] ?? 0) + 1;
+        }
+
+        // If we have enough consecutive detections, check cooldown
+        if (_consecutiveDetectionsMap[studentId]! >= requiredDetections) {
+          final now = DateTime.now();
+          final lastTime = _lastDetectionTime[studentId] ?? DateTime(2000);
+
+          if (now.difference(lastTime) >= _detectionCooldown) {
+            debugPrint('✅ ${match.name} marked present (confirmed) emotion=$currentEmotion');
+            _lastDetectionTime[studentId] = now;
+            _consecutiveDetectionsMap[studentId] = 0;
+
+            // Store the detected emotion for this student
+            if (currentEmotion.isNotEmpty) {
+              _studentEmotions[studentId] = currentEmotion;
+            }
+
+            if (mounted) {
+              setState(() {
+                _attendanceStatus[studentId] = AttendanceStatus.present;
+              });
+              final formattedTime = _formatAttendanceTime(now);
+              final emotionText = currentEmotion.isNotEmpty ? ' | $currentEmotion' : '';
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${match.name} | $formattedTime | Attendance Marked$emotionText',
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 1),
+                ),
+              );
+              // Speak the attendance confirmation
+              _speakAttendanceConfirmation(match.name);
+            }
+
+            // Add to overlay as marked present
+            _overlayFaces.add(face);
+            _overlayNames.add(match.name);
+            _overlayColors.add(Colors.green);
+            _overlayEmotions.add(currentEmotion);
+          } else {
+            // Cooldown not met, show name with pending
+            _overlayFaces.add(face);
+            _overlayNames.add(match.name);
+            _overlayColors.add(Colors.orange);
+            _overlayEmotions.add(currentEmotion);
+          }
+        } else {
+          // Not enough consecutive yet, show name being detected
+          _overlayFaces.add(face);
+          _overlayNames.add(match.name);
+          _overlayColors.add(Colors.orange);
+          _overlayEmotions.add(currentEmotion);
+        }
+      } else {
+        // No match, show unknown
+        _overlayFaces.add(face);
+        _overlayNames.add('Unknown');
+        _overlayColors.add(Colors.red);
+        _overlayEmotions.add(currentEmotion);
+      }
+    }
+
+    // Strict consecutive rule: if a student is not seen in this scan, reset their counter
+    _consecutiveDetectionsMap.removeWhere(
+      (studentId, _) => !seenInCurrentScan.contains(studentId),
+    );
+
+    // Set overlay timer to clear after 2 seconds
+    _overlayTimer?.cancel();
+    _overlayTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _overlayFaces.clear();
+          _overlayNames.clear();
+          _overlayColors.clear();
+          _overlayEmotions.clear();
+        });
+      }
+    });
+
     if (mounted) setState(() {});
   }
 
   // _detectFaceWithMlKit removed from this screen (unused here).
+
+  Future<List<DetectedFace>> _detectFaceWithMlKitBytes(Uint8List imageBytes) async {
+    try {
+      final faces = await _faceDetector.detectFaces(imageBytes);
+      return faces
+          .map(
+            (face) => DetectedFace(
+              x: face.boundingBox.left.toDouble(),
+              y: face.boundingBox.top.toDouble(),
+              width: face.boundingBox.width.toDouble(),
+              height: face.boundingBox.height.toDouble(),
+              confidence: 1.0,
+              expression: face.expression,
+              poseX: face.headEulerAngleY,
+              poseY: face.headEulerAngleZ,
+              smilingProbability: face.smilingProbability,
+              leftEyeOpenProbability: face.leftEyeOpenProbability,
+              rightEyeOpenProbability: face.rightEyeOpenProbability,
+              featureContours: face.featureContours,
+              meshPoints: face.meshPoints,
+              meshTriangles: face.meshTriangles,
+            ),
+          )
+          .toList();
+    } catch (e) {
+      debugPrint('Face detection bytes error: $e');
+      return [];
+    }
+  }
 
   Future<List<DetectedFace>> _detectFaceWithMlKitPath(String imagePath) async {
     try {
@@ -554,6 +818,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               expression: face.expression,
               poseX: face.headEulerAngleY,
               poseY: face.headEulerAngleZ,
+              smilingProbability: face.smilingProbability,
+              leftEyeOpenProbability: face.leftEyeOpenProbability,
+              rightEyeOpenProbability: face.rightEyeOpenProbability,
+              featureContours: face.featureContours,
+              meshPoints: face.meshPoints,
+              meshTriangles: face.meshTriangles,
             ),
           )
           .toList();
@@ -561,6 +831,47 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       debugPrint('Face detection path error: $e');
       return [];
     }
+  }
+
+  img.Image _convertCameraImageToImage(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+
+    if (image.planes.length < 3) {
+      return img.Image(width: width, height: height);
+    }
+
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+    final yRowStride = yPlane.bytesPerRow;
+    final uvRowStride = uPlane.bytesPerRow;
+    final uvPixelStride = uPlane.bytesPerPixel ?? 1;
+
+    final converted = img.Image(width: width, height: height);
+    for (int y = 0; y < height; y++) {
+      final yRowOffset = yRowStride * y;
+      final uvRowOffset = uvRowStride * (y >> 1);
+
+      for (int x = 0; x < width; x++) {
+        final yIndex = yRowOffset + x;
+        final uvIndex = uvRowOffset + (x >> 1) * uvPixelStride;
+
+        final yp = yPlane.bytes[yIndex];
+        final up = uPlane.bytes[uvIndex];
+        final vp = vPlane.bytes[uvIndex];
+
+        final r = (yp + (1.370705 * (vp - 128))).round().clamp(0, 255);
+        final g = (yp - (0.698001 * (vp - 128)) - (0.337633 * (up - 128)))
+            .round()
+            .clamp(0, 255);
+        final b = (yp + (1.732446 * (up - 128))).round().clamp(0, 255);
+
+        converted.setPixelRgba(x, y, r, g, b, 255);
+      }
+    }
+
+    return converted;
   }
 
   img.Image _cropFace(img.Image fullImage, DetectedFace face) {

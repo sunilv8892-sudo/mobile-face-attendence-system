@@ -112,6 +112,19 @@ class ExpressionCueModel {
       scores['Neutral'] = scores['Neutral']! + 0.08;
     }
 
+    // Angry should be conservative: wide-open eyes should not force Angry.
+    if (eyeOpen >= 0.80) {
+      scores['Angry'] = scores['Angry']! * 0.45;
+      scores['Neutral'] = scores['Neutral']! + 0.08;
+      scores['Surprise'] = scores['Surprise']! + 0.05;
+    }
+
+    if (smile <= 0.22 && mouthOpen <= 0.08 && eyeOpen >= 0.32 && eyeOpen <= 0.72 && eyeBalance >= 0.72) {
+      scores['Angry'] = math.max(scores['Angry']!, 0.82);
+      scores['Neutral'] = scores['Neutral']! * 0.84;
+      scores['Surprise'] = scores['Surprise']! * 0.80;
+    }
+
     final normalized = _softmax(scores, temperature: calibration.softmaxTemperature);
     var best = normalized.entries.reduce((a, b) => a.value >= b.value ? a : b);
 

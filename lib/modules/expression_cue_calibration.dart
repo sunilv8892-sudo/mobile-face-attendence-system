@@ -90,9 +90,9 @@ class ExpressionCueCalibration {
       sadSmilePenalty: 0.44,
       sadEyePenalty: 0.30,
       sadMouthPenalty: 0.26,
-      angrySmilePenalty: 0.42,
-      angryEyePenalty: 0.36,
-      angryMouthPenalty: 0.22,
+      angrySmilePenalty: 0.28,
+      angryEyePenalty: 0.18,
+      angryMouthPenalty: 0.16,
     );
   }
 

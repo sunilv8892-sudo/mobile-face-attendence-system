@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../database/database_manager.dart';
 import '../modules/m4_attendance_management.dart';
 import '../models/attendance_model.dart';
+import '../models/student_model.dart';
 import '../utils/constants.dart';
 import '../widgets/animated_background.dart';
 
@@ -16,7 +17,6 @@ class _DatabaseScreenState extends State<DatabaseScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   late final DatabaseManager _dbManager;
-  late final AttendanceManagementModule _attendanceModule;
 
   late Future<SystemStatistics> _systemStatsFuture;
   late Future<List<AttendanceDetails>> _studentDetailsFuture;
@@ -28,7 +28,6 @@ class _DatabaseScreenState extends State<DatabaseScreen>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _dbManager = DatabaseManager();
-    _attendanceModule = AttendanceManagementModule(_dbManager);
     _reloadData();
   }
 
@@ -54,9 +53,12 @@ class _DatabaseScreenState extends State<DatabaseScreen>
         ),
         bottom: TabBar(
           controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
           tabs: const [
-            Tab(icon: Icon(Icons.bar_chart), text: 'Overview'),
-            Tab(icon: Icon(Icons.people), text: 'Enrolled'),
+            Tab(icon: Icon(Icons.bar_chart, color: Colors.white), text: 'Overview'),
+            Tab(icon: Icon(Icons.people, color: Colors.white), text: 'Enrolled'),
           ],
         ),
       ),
@@ -327,6 +329,12 @@ class _DatabaseScreenState extends State<DatabaseScreen>
         ? '${detail.presentCount}/${detail.totalClasses}'
         : '0/0';
     return Card(
+      color: Colors.black,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+        side: BorderSide(color: AppConstants.cardBorder),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(AppConstants.paddingMedium),
         child: Row(
@@ -340,19 +348,20 @@ class _DatabaseScreenState extends State<DatabaseScreen>
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
+                      color: Colors.white,
                     ),
                   ),
                   const SizedBox(height: AppConstants.paddingSmall / 2),
                   Text(
                     'Roll: ${student.rollNumber} · Class: ${student.className}',
-                    style: const TextStyle(fontSize: 12),
+                    style: const TextStyle(fontSize: 12, color: Colors.white70),
                   ),
                   const SizedBox(height: AppConstants.paddingSmall / 2),
                   Text(
                     'Enrolled: ${student.enrollmentDate.toLocal().toString().split(' ')[0]}',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: AppConstants.textTertiary,
+                      color: Colors.white54,
                     ),
                   ),
                   const SizedBox(height: AppConstants.paddingSmall / 2),
@@ -361,6 +370,7 @@ class _DatabaseScreenState extends State<DatabaseScreen>
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
+                      color: Colors.white,
                     ),
                   ),
                 ],
@@ -415,7 +425,7 @@ class _DatabaseScreenState extends State<DatabaseScreen>
     return Container(
       width: 160,
       decoration: BoxDecoration(
-        color: AppConstants.cardColor,
+        color: Colors.black,
         border: Border.all(color: AppConstants.cardBorder),
         borderRadius: BorderRadius.circular(AppConstants.borderRadius),
         boxShadow: [AppConstants.cardShadow],
@@ -437,7 +447,7 @@ class _DatabaseScreenState extends State<DatabaseScreen>
             Text(
               stat.label,
               style: const TextStyle(
-                color: AppConstants.textTertiary,
+                color: Colors.white70,
                 fontSize: 12,
               ),
             ),
@@ -447,7 +457,7 @@ class _DatabaseScreenState extends State<DatabaseScreen>
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: stat.color,
+                color: Colors.white,
               ),
             ),
           ],
@@ -461,6 +471,12 @@ class _DatabaseScreenState extends State<DatabaseScreen>
         ? '${details.presentCount}/${details.totalClasses}'
         : '0/0';
     return Card(
+      color: Colors.black,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+        side: BorderSide(color: AppConstants.cardBorder),
+      ),
       child: InkWell(
         onTap: () => _showStudentDetails(details),
         child: Padding(
@@ -476,15 +492,18 @@ class _DatabaseScreenState extends State<DatabaseScreen>
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
+                        color: Colors.white,
                       ),
                     ),
                     const SizedBox(height: AppConstants.paddingSmall / 2),
                     Text(
                       'Roll: ${details.student.rollNumber} · Class: ${details.student.className}',
+                      style: const TextStyle(color: Colors.white70),
                     ),
                     const SizedBox(height: AppConstants.paddingSmall / 2),
                     Text(
                       'Attendees: ${details.presentCount} · Absentees: ${details.absentCount}',
+                      style: const TextStyle(color: Colors.white70),
                     ),
                   ],
                 ),
@@ -494,12 +513,15 @@ class _DatabaseScreenState extends State<DatabaseScreen>
                 children: [
                   Text(
                     ratio,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                   const SizedBox(height: AppConstants.paddingSmall / 2),
                   Text(
                     '${details.attendancePercentage.toStringAsFixed(1)}%',
-                    style: const TextStyle(color: Colors.grey),
+                    style: const TextStyle(color: Colors.white54),
                   ),
                   const SizedBox(height: AppConstants.paddingSmall / 2),
                   const Icon(Icons.chevron_right, size: 20),
@@ -582,6 +604,12 @@ class _DatabaseScreenState extends State<DatabaseScreen>
         : AppConstants.errorColor;
 
     return Card(
+      color: Colors.black,
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppConstants.borderRadius),
+        side: BorderSide(color: AppConstants.cardBorder),
+      ),
       child: InkWell(
         onTap: () => _showDateDetails(summary),
         borderRadius: BorderRadius.circular(AppConstants.borderRadius),
@@ -611,6 +639,7 @@ class _DatabaseScreenState extends State<DatabaseScreen>
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
+                        color: Colors.white,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -618,7 +647,7 @@ class _DatabaseScreenState extends State<DatabaseScreen>
                       'Attendees = ${summary.presentCount}, Absentees = ${summary.absentCount}',
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppConstants.textSecondary,
+                        color: Colors.white70,
                       ),
                     ),
                   ],
@@ -632,15 +661,12 @@ class _DatabaseScreenState extends State<DatabaseScreen>
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 16,
-                      color: percentColor,
+                      color: Colors.white,
                     ),
                   ),
                   Text(
                     '${summary.presentCount}/${summary.totalStudents}',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppConstants.textTertiary,
-                    ),
+                    style: const TextStyle(fontSize: 11, color: Colors.white54),
                   ),
                 ],
               ),
@@ -648,7 +674,7 @@ class _DatabaseScreenState extends State<DatabaseScreen>
               const Icon(
                 Icons.chevron_right,
                 size: 20,
-                color: AppConstants.textTertiary,
+                color: Colors.white54,
               ),
             ],
           ),
@@ -720,52 +746,77 @@ class _DatabaseScreenState extends State<DatabaseScreen>
   void _reloadData() {
     if (!mounted) return;
     setState(() {
-      _systemStatsFuture = _attendanceModule.getSystemStatistics();
+      _systemStatsFuture = _loadSystemStatistics();
       _studentDetailsFuture = _loadStudentDetails();
       _enrolledStudentsFuture = _loadEnrolledStudents();
       _attendanceHistoryFuture = _loadAttendanceHistory();
     });
   }
 
+  Future<_AttendanceSnapshot> _buildAttendanceSnapshot() async {
+    final students = await _dbManager.getAllStudents();
+    final allRecords = await _dbManager.getAllAttendance();
+
+    final recordsByDate = <String, Map<int, AttendanceRecord>>{};
+    for (final record in allRecords) {
+      final dateKey = _dateKey(record.date);
+      recordsByDate.putIfAbsent(dateKey, () => {});
+      final existing = recordsByDate[dateKey]![record.studentId];
+      if (existing == null || record.recordedAt.isAfter(existing.recordedAt)) {
+        recordsByDate[dateKey]![record.studentId] = record;
+      }
+    }
+
+    final sortedDateKeys = recordsByDate.keys.toList()..sort();
+    final uniqueRecordCount = recordsByDate.values.fold<int>(
+      0,
+      (sum, records) => sum + records.length,
+    );
+
+    return _AttendanceSnapshot(
+      students: students,
+      recordsByDate: recordsByDate,
+      sortedDateKeys: sortedDateKeys,
+      uniqueRecordCount: uniqueRecordCount,
+    );
+  }
+
+  Future<SystemStatistics> _loadSystemStatistics() async {
+    try {
+      final snapshot = await _buildAttendanceSnapshot();
+      final averageAttendance = snapshot.students.isEmpty
+          ? 0.0
+          : snapshot.students
+                  .map((student) => _studentAttendanceRate(student, snapshot))
+                  .fold<double>(0.0, (sum, rate) => sum + rate) /
+              snapshot.students.length;
+
+      final allEmbeddings = await _dbManager.getAllEmbeddings();
+
+      return SystemStatistics(
+        totalStudents: snapshot.students.length,
+        totalEmbeddings: allEmbeddings.length,
+        totalAttendanceRecords: snapshot.uniqueRecordCount,
+        averageAttendance: averageAttendance,
+        lastUpdated: DateTime.now(),
+      );
+    } catch (e) {
+      return SystemStatistics(
+        totalStudents: 0,
+        totalEmbeddings: 0,
+        totalAttendanceRecords: 0,
+        averageAttendance: 0.0,
+        lastUpdated: DateTime.now(),
+      );
+    }
+  }
+
   Future<List<AttendanceDetails>> _loadStudentDetails() async {
     try {
-      final students = await _dbManager.getAllStudents();
-
-      final records = <AttendanceDetails>[];
-      for (final student in students) {
-        try {
-          final detail = await _attendanceModule.getAttendanceDetails(
-            student.id!,
-          );
-          if (detail != null) {
-            records.add(detail);
-          } else {
-            records.add(
-              AttendanceDetails(
-                student: student,
-                totalClasses: 0,
-                presentCount: 0,
-                absentCount: 0,
-                lateCount: 0,
-                attendancePercentage: 0.0,
-                records: [],
-              ),
-            );
-          }
-        } catch (e) {
-          records.add(
-            AttendanceDetails(
-              student: student,
-              totalClasses: 0,
-              presentCount: 0,
-              absentCount: 0,
-              lateCount: 0,
-              attendancePercentage: 0.0,
-              records: [],
-            ),
-          );
-        }
-      }
+      final snapshot = await _buildAttendanceSnapshot();
+      final records = snapshot.students
+          .map((student) => _buildAttendanceDetails(student, snapshot))
+          .toList();
       records.sort((a, b) => a.student.name.compareTo(b.student.name));
       return records;
     } catch (e) {
@@ -775,43 +826,10 @@ class _DatabaseScreenState extends State<DatabaseScreen>
 
   Future<List<AttendanceDetails>> _loadEnrolledStudents() async {
     try {
-      final enrolledStudents = await _dbManager.getEnrolledStudents();
-
-      final records = <AttendanceDetails>[];
-      for (final student in enrolledStudents) {
-        try {
-          final detail = await _attendanceModule.getAttendanceDetails(
-            student.id!,
-          );
-          if (detail != null) {
-            records.add(detail);
-          } else {
-            records.add(
-              AttendanceDetails(
-                student: student,
-                totalClasses: 0,
-                presentCount: 0,
-                absentCount: 0,
-                lateCount: 0,
-                attendancePercentage: 0.0,
-                records: [],
-              ),
-            );
-          }
-        } catch (e) {
-          records.add(
-            AttendanceDetails(
-              student: student,
-              totalClasses: 0,
-              presentCount: 0,
-              absentCount: 0,
-              lateCount: 0,
-              attendancePercentage: 0.0,
-              records: [],
-            ),
-          );
-        }
-      }
+      final snapshot = await _buildAttendanceSnapshot();
+      final records = snapshot.students
+          .map((student) => _buildAttendanceDetails(student, snapshot))
+          .toList();
       records.sort((a, b) => a.student.name.compareTo(b.student.name));
       return records;
     } catch (e) {
@@ -821,44 +839,32 @@ class _DatabaseScreenState extends State<DatabaseScreen>
 
   Future<List<_DateAttendanceSummary>> _loadAttendanceHistory() async {
     try {
-      final allRecords = await _dbManager.getAllAttendance();
-      if (allRecords.isEmpty) return [];
-
-      // Group records by date, deduplicate per student per date (latest wins)
-      final byDate = <String, Map<int, AttendanceRecord>>{};
-      for (final record in allRecords) {
-        final dateKey =
-            '${record.date.year}-${record.date.month.toString().padLeft(2, '0')}-${record.date.day.toString().padLeft(2, '0')}';
-        byDate.putIfAbsent(dateKey, () => {});
-        final existing = byDate[dateKey]![record.studentId];
-        if (existing == null ||
-            record.recordedAt.isAfter(existing.recordedAt)) {
-          byDate[dateKey]![record.studentId] = record;
-        }
-      }
+      final snapshot = await _buildAttendanceSnapshot();
+      if (snapshot.sortedDateKeys.isEmpty) return [];
 
       final summaries = <_DateAttendanceSummary>[];
-      for (final entry in byDate.entries) {
-        final records = entry.value.values.toList();
-        final date = records.first.date;
-        final present = records
-            .where((r) => r.status == AttendanceStatus.present)
-            .length;
-        final absent = records
-            .where((r) => r.status == AttendanceStatus.absent)
-            .length;
-        final late = records
-            .where((r) => r.status == AttendanceStatus.late)
-            .length;
+      for (final dateKey in snapshot.sortedDateKeys) {
+        final date = _parseDateKey(dateKey);
+        final recordsForDate = snapshot.recordsByDate[dateKey] ?? {};
+        var present = 0;
+        var absent = 0;
+        var late = 0;
 
-        // Get student names for the detail view
         final entries = <_DateStudentEntry>[];
-        for (final record in records) {
-          final student = await _dbManager.getStudentById(record.studentId);
+        for (final student in snapshot.students) {
+          final record = recordsForDate[student.id!];
+          final status = record?.status ?? AttendanceStatus.absent;
+          if (status == AttendanceStatus.present) {
+            present++;
+          } else if (status == AttendanceStatus.late) {
+            late++;
+          } else {
+            absent++;
+          }
           entries.add(
             _DateStudentEntry(
-              name: student?.name ?? 'Unknown',
-              status: record.status,
+              name: student.name,
+              status: status,
             ),
           );
         }
@@ -866,8 +872,8 @@ class _DatabaseScreenState extends State<DatabaseScreen>
 
         summaries.add(
           _DateAttendanceSummary(
-            date: DateTime(date.year, date.month, date.day),
-            totalStudents: records.length,
+            date: date,
+            totalStudents: snapshot.students.length,
             presentCount: present,
             absentCount: absent,
             lateCount: late,
@@ -882,6 +888,98 @@ class _DatabaseScreenState extends State<DatabaseScreen>
     } catch (e) {
       return [];
     }
+  }
+
+  AttendanceDetails _buildAttendanceDetails(
+    Student student,
+    _AttendanceSnapshot snapshot,
+  ) {
+    final studentId = student.id;
+    if (studentId == null || snapshot.sortedDateKeys.isEmpty) {
+      return AttendanceDetails(
+        student: student,
+        totalClasses: 0,
+        presentCount: 0,
+        absentCount: 0,
+        lateCount: 0,
+        attendancePercentage: 0.0,
+        records: const [],
+      );
+    }
+
+    var present = 0;
+    var absent = 0;
+    var late = 0;
+    final records = <AttendanceRecord>[];
+
+    for (final dateKey in snapshot.sortedDateKeys) {
+      final date = _parseDateKey(dateKey);
+      final record = snapshot.recordsByDate[dateKey]?[studentId];
+      final status = record?.status ?? AttendanceStatus.absent;
+
+      if (status == AttendanceStatus.present) {
+        present++;
+      } else if (status == AttendanceStatus.late) {
+        late++;
+      } else {
+        absent++;
+      }
+
+      records.add(
+        AttendanceRecord(
+          studentId: studentId,
+          date: date,
+          time: record?.time,
+          status: status,
+          recordedAt: record?.recordedAt ?? date,
+          emotion: record?.emotion,
+        ),
+      );
+    }
+
+    final totalClasses = snapshot.sortedDateKeys.length;
+    final attendancePercentage = totalClasses > 0
+        ? (present / totalClasses) * 100
+        : 0.0;
+
+    return AttendanceDetails(
+      student: student,
+      totalClasses: totalClasses,
+      presentCount: present,
+      absentCount: absent,
+      lateCount: late,
+      attendancePercentage: attendancePercentage,
+      records: records,
+    );
+  }
+
+  double _studentAttendanceRate(
+    Student student,
+    _AttendanceSnapshot snapshot,
+  ) {
+    if (student.id == null || snapshot.sortedDateKeys.isEmpty) return 0.0;
+    var present = 0;
+    for (final dateKey in snapshot.sortedDateKeys) {
+      final status = snapshot.recordsByDate[dateKey]?[student.id!]?.status ??
+          AttendanceStatus.absent;
+      if (status == AttendanceStatus.present) {
+        present++;
+      }
+    }
+    return (present / snapshot.sortedDateKeys.length) * 100;
+  }
+
+  DateTime _parseDateKey(String dateKey) {
+    final parts = dateKey.split('-');
+    if (parts.length != 3) return DateTime.now();
+    final year = int.tryParse(parts[0]) ?? DateTime.now().year;
+    final month = int.tryParse(parts[1]) ?? DateTime.now().month;
+    final day = int.tryParse(parts[2]) ?? DateTime.now().day;
+    return DateTime(year, month, day);
+  }
+
+  String _dateKey(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
   void _showStudentDetails(AttendanceDetails details) {
@@ -1011,6 +1109,20 @@ class _DateStudentEntry {
   final AttendanceStatus status;
 
   _DateStudentEntry({required this.name, required this.status});
+}
+
+class _AttendanceSnapshot {
+  final List<Student> students;
+  final Map<String, Map<int, AttendanceRecord>> recordsByDate;
+  final List<String> sortedDateKeys;
+  final int uniqueRecordCount;
+
+  _AttendanceSnapshot({
+    required this.students,
+    required this.recordsByDate,
+    required this.sortedDateKeys,
+    required this.uniqueRecordCount,
+  });
 }
 
 

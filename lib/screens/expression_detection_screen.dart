@@ -48,6 +48,10 @@ class _ExpressionDetectionScreenState extends State<ExpressionDetectionScreen> {
   bool _emotionModelReady = false;
   String _pipelineStatusText = 'Loading emotion pipeline...';
   DateTime? _scanWarmupUntil;
+  bool _isImageStreamActive = false;
+  DateTime? _lastStreamScanTime;
+
+  static const Duration _streamScanInterval = Duration(milliseconds: 350);
 
   // Overlay
   final List<DetectedFace> _overlayFaces = [];
@@ -79,6 +83,7 @@ class _ExpressionDetectionScreenState extends State<ExpressionDetectionScreen> {
   void dispose() {
     _isScanning = false;
     _overlayTimer?.cancel();
+    unawaited(_stopCameraStream());
     _controller?.dispose();
     _faceDetector.dispose();
     super.dispose();
@@ -125,17 +130,21 @@ class _ExpressionDetectionScreenState extends State<ExpressionDetectionScreen> {
 
   Future<void> _startCamera(CameraDescription camera) async {
     try {
+      await _stopCameraStream();
       await _controller?.dispose();
       _resetEmotionHistory();
       _scanWarmupUntil = null;
       _currentCamera = camera;
       _controller = CameraController(
         camera,
-        ResolutionPreset.medium,
+        ResolutionPreset.low,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await _controller!.initialize();
+      if (_isScanning) {
+        await _startCameraStream();
+      }
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Start camera error: $e');
@@ -171,88 +180,7 @@ class _ExpressionDetectionScreenState extends State<ExpressionDetectionScreen> {
       if (rawImage == null) return;
 
       debugPrint('📸 Expression scan: ${rawImage.width}x${rawImage.height}');
-
-      final detectionImage = _prepareEmotionFrame(rawImage);
-      final detectionBytes = Uint8List.fromList(
-        img.encodeJpg(detectionImage, quality: 90),
-      );
-
-      final detections = await _detectFaces(detectionBytes);
-      if (detections.isEmpty) {
-        _resetEmotionHistory();
-        debugPrint('❌ No face detected');
-        return;
-      }
-
-      _imageSize = Size(
-        rawImage.width.toDouble(),
-        rawImage.height.toDouble(),
-      );
-
-      final validFaces =
-          detections.where((f) => f.width >= 60 && f.height >= 60).toList();
-      if (validFaces.isEmpty) {
-        _resetEmotionHistory();
-        return;
-      }
-
-      if (validFaces.length != 1) {
-        _resetEmotionHistory();
-      }
-
-      _overlayFaces.clear();
-      _overlayExpressions.clear();
-      _overlayColors.clear();
-
-      for (final face in validFaces) {
-        String expr = 'Neutral';
-        double confidence = 0.0;
-
-        try {
-          final emotionResult = _detectRobustEmotion(face);
-          final decision = validFaces.length == 1
-              ? _stabilizeEmotion(emotionResult)
-              : _rawDecision(emotionResult);
-          expr = decision.label;
-          confidence = decision.confidence;
-          _pipelineStatusText = decision.statusText;
-          // Debug: print top-3 raw probabilities
-          final sortedProbs = emotionResult.probabilities.entries.toList()
-            ..sort((a, b) => b.value.compareTo(a.value));
-          final top3 = sortedProbs.take(3).map((e) => '${e.key}:${(e.value * 100).toStringAsFixed(1)}%').join(' ');
-          debugPrint(
-              '🎭 Emotion: $expr (${(confidence * 100).toStringAsFixed(1)}%) '
-              'top3=[$top3] '
-              '${emotionResult.isFallback ? "[fallback]" : "[cue model]"}');
-
-          if (decision.accepted) {
-            _appendStableEmotionLog(decision.label);
-          }
-        } catch (e) {
-          expr = _lastStableEmotion ?? 'Neutral';
-          confidence = _lastStableConfidence > 0.0 ? _lastStableConfidence : 0.01;
-          _pipelineStatusText = 'Expression frame unsettled, holding last stable label';
-          debugPrint('⚠️ Emotion detection failed, holding stable emotion: $e');
-        }
-
-        _overlayFaces.add(face);
-        _overlayExpressions
-            .add(confidence > 0 ? '$expr ${(confidence * 100).toStringAsFixed(0)}%' : expr);
-        _overlayColors.add(_colorForExpression(expr));
-      }
-
-      _overlayTimer?.cancel();
-      _overlayTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted) {
-          setState(() {
-            _overlayFaces.clear();
-            _overlayExpressions.clear();
-            _overlayColors.clear();
-          });
-        }
-      });
-
-      if (mounted) setState(() {});
+      await _processEmotionFrame(rawImage);
     } catch (e) {
       debugPrint('Scan error: $e');
     } finally {
@@ -262,26 +190,181 @@ class _ExpressionDetectionScreenState extends State<ExpressionDetectionScreen> {
   }
 
   Future<void> _startContinuousScanning() async {
-    if (_isScanning) return;
+    if (_controller == null || !_controller!.value.isInitialized) return;
+
+    if (_isScanning && _isImageStreamActive) return;
+
     _isScanning = true;
     _resetEmotionHistory();
-    _scanWarmupUntil = DateTime.now().add(const Duration(seconds: 2));
+    _scanWarmupUntil = DateTime.now().add(const Duration(seconds: 1));
+    _lastStreamScanTime = null;
     if (mounted) setState(() {});
-    try {
-      while (_isScanning) {
-        if (!_isProcessing) await _scanExpression();
-        await Future.delayed(_scanInterval);
-      }
-    } finally {
-      _isScanning = false;
-      if (mounted) setState(() {});
-    }
+
+    await _startCameraStream();
   }
 
   void _stopScanning() {
     _isScanning = false;
     _resetEmotionHistory();
     _scanWarmupUntil = null;
+    _lastStreamScanTime = null;
+    unawaited(_stopCameraStream());
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _startCameraStream() async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    if (_isImageStreamActive) return;
+
+    try {
+      await _controller!.startImageStream((image) {
+        if (!_isScanning || _isProcessing) return;
+
+        final now = DateTime.now();
+        final lastScan = _lastStreamScanTime;
+        if (lastScan != null && now.difference(lastScan) < _streamScanInterval) {
+          return;
+        }
+
+        _lastStreamScanTime = now;
+        unawaited(_processLiveFrame(image));
+      });
+      _isImageStreamActive = true;
+    } catch (e) {
+      debugPrint('Image stream start error: $e');
+      _isImageStreamActive = false;
+    }
+  }
+
+  Future<void> _stopCameraStream() async {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      _isImageStreamActive = false;
+      return;
+    }
+
+    if (!_isImageStreamActive) return;
+
+    try {
+      await _controller!.stopImageStream();
+    } catch (e) {
+      debugPrint('Image stream stop error: $e');
+    } finally {
+      _isImageStreamActive = false;
+    }
+  }
+
+  Future<void> _processLiveFrame(CameraImage image) async {
+    if (!_isScanning || _isProcessing) return;
+    _isProcessing = true;
+
+    try {
+      final rawImage = _convertCameraImageToImage(image);
+      final rotation = _currentCamera.sensorOrientation % 360;
+      final correctedImage = rotation == 0
+          ? rawImage
+          : img.copyRotate(rawImage, angle: rotation.toDouble());
+
+      debugPrint('📸 Expression stream frame: ${correctedImage.width}x${correctedImage.height}');
+      await _processEmotionFrame(correctedImage);
+    } catch (e) {
+      debugPrint('Live scan error: $e');
+    } finally {
+      _isProcessing = false;
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _processEmotionFrame(img.Image rawImage) async {
+    final warmupUntil = _scanWarmupUntil;
+    if (warmupUntil != null && DateTime.now().isBefore(warmupUntil)) {
+      _pipelineStatusText = 'Warming up emotion model';
+      if (mounted) setState(() {});
+      return;
+    }
+
+    final detectionImage = _prepareEmotionFrame(rawImage);
+    final detectionBytes = Uint8List.fromList(
+      img.encodeJpg(detectionImage, quality: 90),
+    );
+
+    final detections = await _detectFaces(detectionBytes);
+    if (detections.isEmpty) {
+      _resetEmotionHistory();
+      debugPrint('❌ No face detected');
+      return;
+    }
+
+    _imageSize = Size(rawImage.width.toDouble(), rawImage.height.toDouble());
+
+    final validFaces =
+        detections.where((f) => f.width >= 60 && f.height >= 60).toList();
+    if (validFaces.isEmpty) {
+      _resetEmotionHistory();
+      return;
+    }
+
+    if (validFaces.length != 1) {
+      _resetEmotionHistory();
+    }
+
+    _overlayFaces.clear();
+    _overlayExpressions.clear();
+    _overlayColors.clear();
+
+    for (final face in validFaces) {
+      String expr = 'Neutral';
+      double confidence = 0.0;
+
+      try {
+        final emotionResult = _detectRobustEmotion(face);
+        final adjustedResult = _applyExpressionOverrides(face, emotionResult);
+        final decision = validFaces.length == 1
+            ? _stabilizeEmotion(adjustedResult)
+            : _rawDecision(adjustedResult);
+        expr = decision.label;
+        confidence = decision.confidence;
+        _pipelineStatusText = decision.statusText;
+
+        final sortedProbs = adjustedResult.probabilities.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        final top3 = sortedProbs
+            .take(3)
+            .map((e) => '${e.key}:${(e.value * 100).toStringAsFixed(1)}%')
+            .join(' ');
+        debugPrint(
+          '🎭 Emotion: $expr (${(confidence * 100).toStringAsFixed(1)}%) '
+          'top3=[$top3] '
+          '${adjustedResult.isFallback ? "[fallback]" : "[cue model]"}',
+        );
+
+        if (decision.accepted) {
+          _appendStableEmotionLog(decision.label);
+        }
+      } catch (e) {
+        expr = _lastStableEmotion ?? 'Neutral';
+        confidence = _lastStableConfidence > 0.0 ? _lastStableConfidence : 0.01;
+        _pipelineStatusText = 'Expression frame unsettled, holding last stable label';
+        debugPrint('⚠️ Emotion detection failed, holding stable emotion: $e');
+      }
+
+      _overlayFaces.add(face);
+      _overlayExpressions.add(
+        confidence > 0 ? '$expr ${(confidence * 100).toStringAsFixed(0)}%' : expr,
+      );
+      _overlayColors.add(_colorForExpression(expr));
+    }
+
+    _overlayTimer?.cancel();
+    _overlayTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) {
+        setState(() {
+          _overlayFaces.clear();
+          _overlayExpressions.clear();
+          _overlayColors.clear();
+        });
+      }
+    });
+
     if (mounted) setState(() {});
   }
 
@@ -356,6 +439,51 @@ class _ExpressionDetectionScreenState extends State<ExpressionDetectionScreen> {
     return _expressionModel.predict(face);
   }
 
+  EmotionDetectionResult _applyExpressionOverrides(
+    DetectedFace face,
+    EmotionDetectionResult result,
+  ) {
+    final leftEye = face.leftEyeOpenProbability ?? 0.5;
+    final rightEye = face.rightEyeOpenProbability ?? 0.5;
+    final eyeOpen = ((leftEye + rightEye) / 2.0).clamp(0.0, 1.0).toDouble();
+    final smile = face.smilingProbability ?? 0.0;
+    final mouthOpen = _mouthOpenRatio(face);
+
+    final probabilities = Map<String, double>.from(result.probabilities);
+    if (eyeOpen >= 0.80) {
+      probabilities['Angry'] = (probabilities['Angry'] ?? 0.0) * 0.45;
+      probabilities['Neutral'] = (probabilities['Neutral'] ?? 0.0) + 0.08;
+      probabilities['Surprise'] = (probabilities['Surprise'] ?? 0.0) + 0.05;
+    }
+
+    if (smile <= 0.22 && mouthOpen <= 0.08 && eyeOpen >= 0.32 && eyeOpen <= 0.72) {
+      probabilities['Angry'] = max(probabilities['Angry'] ?? 0.0, 0.82);
+      probabilities['Neutral'] = (probabilities['Neutral'] ?? 0.0) * 0.84;
+      probabilities['Surprise'] = (probabilities['Surprise'] ?? 0.0) * 0.80;
+    }
+
+    final bestEntry = probabilities.entries.reduce((a, b) => a.value >= b.value ? a : b);
+
+    return EmotionDetectionResult(
+      label: bestEntry.key,
+      confidence: bestEntry.value,
+      probabilities: probabilities,
+      isFallback: result.isFallback,
+    );
+  }
+
+  double _mouthOpenRatio(DetectedFace face) {
+    final upperLip = face.featureContours['upperLip'];
+    final lowerLip = face.featureContours['lowerLip'];
+    if (upperLip == null || lowerLip == null || upperLip.isEmpty || lowerLip.isEmpty) {
+      return 0.0;
+    }
+
+    final upperY = upperLip.map((point) => point.dy).reduce((a, b) => a + b) / upperLip.length;
+    final lowerY = lowerLip.map((point) => point.dy).reduce((a, b) => a + b) / lowerLip.length;
+    return ((lowerY - upperY).abs() / max(face.height, 1.0)).clamp(0.0, 1.0).toDouble();
+  }
+
   double _estimateMeanLuma(img.Image image) {
     double meanLuma = 0.0;
     int pixelCount = 0;
@@ -371,6 +499,47 @@ class _ExpressionDetectionScreenState extends State<ExpressionDetectionScreen> {
       }
     }
     return pixelCount > 0 ? meanLuma / pixelCount : 128.0;
+  }
+
+  img.Image _convertCameraImageToImage(CameraImage image) {
+    final width = image.width;
+    final height = image.height;
+
+    if (image.planes.length < 3) {
+      return img.Image(width: width, height: height);
+    }
+
+    final yPlane = image.planes[0];
+    final uPlane = image.planes[1];
+    final vPlane = image.planes[2];
+    final yRowStride = yPlane.bytesPerRow;
+    final uvRowStride = uPlane.bytesPerRow;
+    final uvPixelStride = uPlane.bytesPerPixel ?? 1;
+
+    final converted = img.Image(width: width, height: height);
+    for (int y = 0; y < height; y++) {
+      final yRowOffset = yRowStride * y;
+      final uvRowOffset = uvRowStride * (y >> 1);
+
+      for (int x = 0; x < width; x++) {
+        final yIndex = yRowOffset + x;
+        final uvIndex = uvRowOffset + (x >> 1) * uvPixelStride;
+
+        final yp = yPlane.bytes[yIndex];
+        final up = uPlane.bytes[uvIndex];
+        final vp = vPlane.bytes[uvIndex];
+
+        final r = (yp + (1.370705 * (vp - 128))).round().clamp(0, 255);
+        final g = (yp - (0.698001 * (vp - 128)) - (0.337633 * (up - 128)))
+            .round()
+            .clamp(0, 255);
+        final b = (yp + (1.732446 * (up - 128))).round().clamp(0, 255);
+
+        converted.setPixelRgba(x, y, r, g, b, 255);
+      }
+    }
+
+    return converted;
   }
 
   Color _colorForExpression(String expr) {
